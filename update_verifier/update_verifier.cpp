@@ -324,7 +324,7 @@ int update_verifier(int argc, char** argv) {
   const auto module = android::hal::BootControlClient::WaitForService();
   if (module == nullptr) {
     LOG(ERROR) << "Error getting bootctrl module.";
-    return reboot_device();
+    return 0;
   }
 
   uint32_t current_slot = module->GetCurrentSlot();
