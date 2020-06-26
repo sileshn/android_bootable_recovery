@@ -49,7 +49,7 @@ ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 27; echo $$?),0)
     RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/adbd
 endif
 RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/e2fsck
-ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 28; echo $$?),0)
+ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 27; echo $$?),0)
     RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/e2fsdroid
 endif
 RELINK_SOURCE_FILES += $(TARGET_OUT_EXECUTABLES)/mke2fs
