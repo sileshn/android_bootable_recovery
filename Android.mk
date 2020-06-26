@@ -873,7 +873,7 @@ include \
     $(commands_TWRP_local_path)/update_verifier/Android.mk \
     $(commands_TWRP_local_path)/bootloader_message_twrp/Android.mk
 
-ifeq ($(shell test $(PLATFORM_SDK_VERSION) -le 25; echo $$?),0)
+ifeq ($(shell test $(PLATFORM_SDK_VERSION) -le 27; echo $$?),0)
 include $(commands_TWRP_local_path)/bootloader_message/Android.mk
 endif
 
