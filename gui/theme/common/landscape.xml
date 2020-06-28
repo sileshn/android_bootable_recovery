@@ -3066,6 +3066,20 @@
 			<button style="main_button_half_width">
 				<placement x="%col2_x_right%" y="%row15a_y%"/>
 				<text>{@restore_defaults_btn=Restore Defaults}</text>
+                                        <action function="set">tw_signed_zip_verify=0</action>
+                                        <action function="set">tw_install_reboot=0</action>
+                                        <action function="set">tw_rm_rf=0</action>
+                                        <action function="set">tw_disable_free_space=0</action>
+                                        <action function="set">tw_skip_digest_generate=0</action>
+                                        <action function="set">tw_skip_digest_check=0</action>
+                                        <action function="set">tw_military_time=0</action>
+                                        <action function="set">tw_samsung_navbar=0</action>
+                                        <action function="set">tw_navbar_button_position=0</action>
+                                        <action function="set">tw_tab_icons=0</action>
+                                        <action function="set">tw_simulate_actions=0</action>
+                                        <action function="set">tw_simulate_fail=0</action>
+                                        <action function="set">tw_use_sha2=1</action>
+                                        <action function="set">tw_unmount_system=1</action>
 				<action function="restoredefaultsettings"/>
 			</button>
 
