@@ -289,7 +289,7 @@ bool ask_to_cancel_ota(Device* device) {
 
 static InstallResult apply_update_menu(Device* device, Device::BuiltinAction* reboot_action){
   RecoveryUI* ui = device->GetUI();
-  std::vector<std::string> headers{ "Apply update" };
+  std::vector<std::string> headers{ "Install update" };
   std::vector<std::string> items;
 
   const int item_sideload = 0;
@@ -303,7 +303,7 @@ static InstallResult apply_update_menu(Device* device, Device::BuiltinAction* re
     non_storage_items = 1; // ADB sideload, at least
 
     items.clear();
-    items.push_back("Apply from ADB");
+    items.push_back("ADB Sideload");
 
     if (InitializeVirtiofs()) {
       non_storage_items++;
@@ -508,7 +508,7 @@ static bool AskToReboot(Device* device, Device::BuiltinAction chosen_action) {
   switch (chosen_action) {
     case Device::REBOOT:
       header_text = "reboot";
-      item_text = " Reboot system now";
+      item_text = " Reboot to system";
       break;
     case Device::SHUTDOWN:
       header_text = "power off";
