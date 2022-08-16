@@ -49,7 +49,6 @@ void FillDefaultFastbootLines(std::vector<std::string>& title_lines) {
   if (!baseband_version.empty()) {
     title_lines.push_back("Baseband version - " + baseband_version);
   }
-  title_lines.push_back("Serial number - " + android::base::GetProperty("ro.serialno", ""));
   title_lines.push_back(std::string("Secure boot - ") +
                         ((android::base::GetProperty("ro.secure", "") == "1") ? "yes" : "no"));
   if (!android::base::EqualsIgnoreCase(hw_version, "0")) {
