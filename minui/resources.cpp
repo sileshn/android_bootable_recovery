@@ -125,6 +125,10 @@ PngHandler::PngHandler(const std::string& name) {
     // general.
     png_set_palette_to_rgb(png_ptr_);
     channels_ = 3;
+  } else if (bit_depth_ == 8 && channels_ == 4 && color_type_ == PNG_COLOR_TYPE_RGB_ALPHA) {
+    // Strip the alpha channel.
+    png_set_strip_alpha(png_ptr_);
+    channels_ = 3;
   } else {
     fprintf(stderr, "minui doesn't support PNG depth %d channels %d color_type %d\n", bit_depth_,
             channels_, color_type_);
