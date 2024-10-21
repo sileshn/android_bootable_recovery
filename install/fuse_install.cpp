@@ -79,6 +79,7 @@ std::string BrowseDirectory(const std::string& path, Device* device, RecoveryUI*
       dirs.push_back(name + "/");
     } else if (entry.is_regular_file()) {
       if (android::base::EndsWithIgnoreCase(name, ".zip") ||
+          android::base::EndsWithIgnoreCase(name, ".apk") ||
           android::base::EndsWithIgnoreCase(name, ".map")) {
         entries.push_back(name);
       }
