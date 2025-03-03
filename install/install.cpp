@@ -744,6 +744,23 @@ bool verify_package(Package* package, RecoveryUI* ui) {
   return true;
 }
 
+bool CheckPathCanonical(const std::string& path) {
+  // Reject the package if the input path doesn't equal the canonicalized path.
+  // e.g. /cache/../sdcard/update_package.
+  std::error_code ec;
+  auto canonical_path = std::filesystem::canonical(path, ec);
+  if (ec) {
+    LOG(ERROR) << "Failed to get canonical of " << path << ", " << ec.message();
+    return false;
+  }
+  if (canonical_path.string() != path) {
+    LOG(ERROR) << "Installation aborts. The canonical path " << canonical_path.string()
+               << " doesn't equal the original path " << path;
+    return false;
+  }
+  return true;
+}
+
 bool SetupPackageMount(const std::string& package_path, bool* should_use_fuse) {
   CHECK(should_use_fuse != nullptr);
 
@@ -754,6 +771,11 @@ bool SetupPackageMount(const std::string& package_path, bool* should_use_fuse) {
   *should_use_fuse = true;
   if (package_path[0] == '@') {
     auto block_map_path = package_path.substr(1);
+    if (!CheckPathCanonical(block_map_path)) {
+      LOG(ERROR) << "Block map path " << package_path << " not canonical, abort installation.";
+      return false;
+    }
+
     if (ensure_path_mounted(block_map_path) != 0) {
       LOG(ERROR) << "Failed to mount " << block_map_path;
       return false;
@@ -769,17 +791,8 @@ bool SetupPackageMount(const std::string& package_path, bool* should_use_fuse) {
     return false;
   }
 
-  // Reject the package if the input path doesn't equal the canonicalized path.
-  // e.g. /cache/../sdcard/update_package.
-  std::error_code ec;
-  auto canonical_path = std::filesystem::canonical(package_path, ec);
-  if (ec) {
-    LOG(ERROR) << "Failed to get canonical of " << package_path << ", " << ec.message();
-    return false;
-  }
-  if (canonical_path.string() != package_path) {
-    LOG(ERROR) << "Installation aborts. The canonical path " << canonical_path.string()
-               << " doesn't equal the original path " << package_path;
+  if (!CheckPathCanonical(package_path)) {
+    LOG(ERROR) << "Block map path " << package_path << " not canonical, abort installation.";
     return false;
   }
 
