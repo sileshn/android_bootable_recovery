@@ -26,7 +26,6 @@
 // The update verifier performs verification upon the first boot to a new slot on A/B devices.
 // During the verification, it reads all the blocks in the care_map. And if a failure happens,
 // it rejects the current boot and triggers a fallback.
-
 int update_verifier(int argc, char** argv);
 
 // The UpdateVerifier parses the content in the care map, and continues to verify the
