@@ -76,11 +76,10 @@ static bool IsDeviceUnlocked() {
 static void UiLogger(android::base::LogId log_buffer_id, android::base::LogSeverity severity,
                      const char* tag, const char* file, unsigned int line, const char* message) {
   android::base::KernelLogger(log_buffer_id, severity, tag, file, line, message);
-  static constexpr auto&& log_characters = "VDIWEF";
   if (severity >= android::base::ERROR && ui != nullptr) {
     ui->Print("ERROR: %10s: %s\n", tag, message);
   } else {
-    fprintf(stdout, "%c:%s\n", log_characters[severity], message);
+    fprintf(stdout, "%c:%s\n", android::base::kSeverityChars[severity], message);
   }
 }
 
