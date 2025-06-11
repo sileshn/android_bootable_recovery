@@ -40,7 +40,6 @@
 #include "update_verifier/update_verifier.h"
 
 #include <dirent.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -67,8 +66,7 @@
 
 #include "care_map.pb.h"
 
-// TODO(xunchang) remove the prefix and use a default path instead.
-constexpr const char* kDefaultCareMapPrefix = "/data/ota_package/care_map";
+const std::string UpdateVerifier::kCareMapPath = "/data/ota_package/care_map.pb";
 
 // Find directories in format of "/sys/block/dm-X".
 static int dm_name_filter(const dirent* de) {
@@ -79,8 +77,7 @@ static int dm_name_filter(const dirent* de) {
 }
 
 UpdateVerifier::UpdateVerifier()
-    : care_map_prefix_(kDefaultCareMapPrefix),
-      property_reader_([](const std::string& id) { return android::base::GetProperty(id, ""); }) {}
+    : property_reader_([](const std::string& id) { return android::base::GetProperty(id, ""); }) {}
 
 // Iterate the content of "/sys/block/dm-X/dm/name" and find all the dm-wrapped block devices.
 // We will later read all the ("cared") blocks from "/dev/block/dm-X" to ensure the target
@@ -226,7 +223,7 @@ bool UpdateVerifier::VerifyPartitions() {
 bool UpdateVerifier::ParseCareMap() {
   partition_map_.clear();
 
-  std::string care_map_name = care_map_prefix_ + ".pb";
+  std::string care_map_name = kCareMapPath;
   if (access(care_map_name.c_str(), R_OK) == -1) {
     LOG(ERROR) << care_map_name << " doesn't exist";
     return false;
@@ -297,10 +294,6 @@ bool UpdateVerifier::ParseCareMap() {
   }
 
   return true;
-}
-
-void UpdateVerifier::set_care_map_prefix(const std::string& prefix) {
-  care_map_prefix_ = prefix;
 }
 
 void UpdateVerifier::set_property_reader(
