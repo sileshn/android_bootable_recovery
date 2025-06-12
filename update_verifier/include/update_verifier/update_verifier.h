@@ -34,9 +34,6 @@ int update_verifier(int argc, char** argv);
 // it should skip the verification to avoid bricking the device.
 class UpdateVerifier {
  public:
-  // path to write care_map.pb. this should be fixed
-  static const std::string kCareMapPath;
-
   UpdateVerifier();
 
   // This function tries to process the care_map.pb as protobuf message. If the parsing succeeds,
@@ -60,6 +57,9 @@ class UpdateVerifier {
   void set_property_reader(const std::function<std::string(const std::string&)>& property_reader);
 
   std::map<std::string, RangeSet> partition_map_;
+  // The path to the care_map excluding the filename extension; default value:
+  // "/data/ota_package/care_map"
+  std::string care_map_prefix_;
 
   // The function to read the device property; default value: android::base::GetProperty()
   std::function<std::string(const std::string&)> property_reader_;
