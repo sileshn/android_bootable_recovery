@@ -37,6 +37,12 @@ class UpdateVerifierTest : public ::testing::Test {
     std::string verity_mode = android::base::GetProperty("ro.boot.veritymode", "");
     verity_supported = android::base::EqualsIgnoreCase(verity_mode, "enforcing");
 
+    care_map_prefix_ = care_map_dir_.path + "/care_map"s;
+    care_map_pb_ = care_map_dir_.path + "/care_map.pb"s;
+    care_map_txt_ = care_map_dir_.path + "/care_map.txt"s;
+    // Overrides the the care_map_prefix.
+    verifier_.set_care_map_prefix(care_map_prefix_);
+
     property_id_ = "ro.build.fingerprint";
     fingerprint_ = android::base::GetProperty(property_id_, "");
     // Overrides the property_reader if we cannot read the given property on the device.
@@ -44,6 +50,11 @@ class UpdateVerifierTest : public ::testing::Test {
       fingerprint_ = "mock_fingerprint";
       verifier_.set_property_reader([](const std::string& /* id */) { return "mock_fingerprint"; });
     }
+  }
+
+  void TearDown() override {
+    unlink(care_map_pb_.c_str());
+    unlink(care_map_txt_.c_str());
   }
 
   // Returns a serialized string of the proto3 message according to the given partition info.
@@ -74,11 +85,29 @@ class UpdateVerifierTest : public ::testing::Test {
   bool verity_supported;
   UpdateVerifier verifier_;
 
+  TemporaryDir care_map_dir_;
+  std::string care_map_prefix_;
+  std::string care_map_pb_;
+  std::string care_map_txt_;
+
   std::string property_id_;
   std::string fingerprint_;
 };
 
 TEST_F(UpdateVerifierTest, verify_image_no_care_map) {
+  ASSERT_FALSE(verifier_.ParseCareMap());
+}
+
+TEST_F(UpdateVerifierTest, verify_image_text_format) {
+  // This test relies on dm-verity support.
+  if (!verity_supported) {
+    GTEST_LOG_(INFO) << "Test skipped on devices without dm-verity support.";
+    return;
+  }
+
+  std::string content = "system\n2,0,1";
+  ASSERT_TRUE(android::base::WriteStringToFile(content, care_map_txt_));
+  // CareMap in text format is no longer supported.
   ASSERT_FALSE(verifier_.ParseCareMap());
 }
 
@@ -103,7 +132,7 @@ TEST_F(UpdateVerifierTest, verify_image_protobuf_care_map_smoke) {
   };
 
   std::string proto = ConstructProto(partitions);
-  ASSERT_TRUE(android::base::WriteStringToFile(proto, UpdateVerifier::kCareMapPath));
+  ASSERT_TRUE(android::base::WriteStringToFile(proto, care_map_pb_));
   ASSERT_TRUE(verifier_.ParseCareMap());
   ASSERT_TRUE(verifier_.VerifyPartitions());
 }
@@ -124,7 +153,7 @@ TEST_F(UpdateVerifierTest, verify_image_protobuf_care_map_missing_name) {
   };
 
   std::string proto = ConstructProto(partitions);
-  ASSERT_TRUE(android::base::WriteStringToFile(proto, UpdateVerifier::kCareMapPath));
+  ASSERT_TRUE(android::base::WriteStringToFile(proto, care_map_pb_));
   ASSERT_FALSE(verifier_.ParseCareMap());
 }
 
@@ -145,7 +174,7 @@ TEST_F(UpdateVerifierTest, verify_image_protobuf_care_map_bad_ranges) {
   };
 
   std::string proto = ConstructProto(partitions);
-  ASSERT_TRUE(android::base::WriteStringToFile(proto, UpdateVerifier::kCareMapPath));
+  ASSERT_TRUE(android::base::WriteStringToFile(proto, care_map_pb_));
   ASSERT_FALSE(verifier_.ParseCareMap());
 }
 
@@ -164,7 +193,7 @@ TEST_F(UpdateVerifierTest, verify_image_protobuf_empty_fingerprint) {
   };
 
   std::string proto = ConstructProto(partitions);
-  ASSERT_TRUE(android::base::WriteStringToFile(proto, UpdateVerifier::kCareMapPath));
+  ASSERT_TRUE(android::base::WriteStringToFile(proto, care_map_pb_));
   ASSERT_FALSE(verifier_.ParseCareMap());
 }
 
@@ -185,6 +214,6 @@ TEST_F(UpdateVerifierTest, verify_image_protobuf_fingerprint_mismatch) {
   };
 
   std::string proto = ConstructProto(partitions);
-  ASSERT_TRUE(android::base::WriteStringToFile(proto, UpdateVerifier::kCareMapPath));
+  ASSERT_TRUE(android::base::WriteStringToFile(proto, care_map_pb_));
   ASSERT_FALSE(verifier_.ParseCareMap());
 }
