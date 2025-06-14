@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,6 +37,7 @@
 #include "common/test_constants.h"
 #include "otautil/package.h"
 #include "otautil/verifier.h"
+#include "otautil/sysutil.h"
 
 using namespace std::string_literals;
 
@@ -266,9 +268,11 @@ class VerifierTest : public testing::TestWithParam<std::vector<std::string>> {
   std::vector<Certificate> certs_;
 };
 
-class VerifierSuccessTest : public VerifierTest {};
+class VerifierSuccessTest : public VerifierTest {
+};
 
-class VerifierFailureTest : public VerifierTest {};
+class VerifierFailureTest : public VerifierTest {
+};
 
 TEST(VerifierTest, BadPackage_AlteredFooter) {
   std::vector<Certificate> certs;
@@ -324,33 +328,37 @@ TEST_P(VerifierFailureTest, VerifyFailure) {
 }
 
 INSTANTIATE_TEST_CASE_P(SingleKeySuccess, VerifierSuccessTest,
-                        ::testing::Values(std::vector<std::string>({ "otasigned_v1.zip", "v1" }),
-                                          std::vector<std::string>({ "otasigned_v2.zip", "v2" }),
-                                          std::vector<std::string>({ "otasigned_v3.zip", "v3" }),
-                                          std::vector<std::string>({ "otasigned_v4.zip", "v4" }),
-                                          std::vector<std::string>({ "otasigned_v5.zip", "v5" })));
+    ::testing::Values(
+      std::vector<std::string>({"otasigned_v1.zip", "v1"}),
+      std::vector<std::string>({"otasigned_v2.zip", "v2"}),
+      std::vector<std::string>({"otasigned_v3.zip", "v3"}),
+      std::vector<std::string>({"otasigned_v4.zip", "v4"}),
+      std::vector<std::string>({"otasigned_v5.zip", "v5"})));
 
-INSTANTIATE_TEST_CASE_P(
-    MultiKeySuccess, VerifierSuccessTest,
-    ::testing::Values(std::vector<std::string>({ "otasigned_v1.zip", "v1", "v2" }),
-                      std::vector<std::string>({ "otasigned_v2.zip", "v5", "v2" }),
-                      std::vector<std::string>({ "otasigned_v3.zip", "v5", "v1", "v3" }),
-                      std::vector<std::string>({ "otasigned_v4.zip", "v5", "v1", "v4" }),
-                      std::vector<std::string>({ "otasigned_v5.zip", "v4", "v1", "v5" })));
+INSTANTIATE_TEST_CASE_P(MultiKeySuccess, VerifierSuccessTest,
+    ::testing::Values(
+      std::vector<std::string>({"otasigned_v1.zip", "v1", "v2"}),
+      std::vector<std::string>({"otasigned_v2.zip", "v5", "v2"}),
+      std::vector<std::string>({"otasigned_v3.zip", "v5", "v1", "v3"}),
+      std::vector<std::string>({"otasigned_v4.zip", "v5", "v1", "v4"}),
+      std::vector<std::string>({"otasigned_v5.zip", "v4", "v1", "v5"})));
 
 INSTANTIATE_TEST_CASE_P(WrongKey, VerifierFailureTest,
-                        ::testing::Values(std::vector<std::string>({ "otasigned_v1.zip", "v2" }),
-                                          std::vector<std::string>({ "otasigned_v2.zip", "v1" }),
-                                          std::vector<std::string>({ "otasigned_v3.zip", "v5" }),
-                                          std::vector<std::string>({ "otasigned_v4.zip", "v5" }),
-                                          std::vector<std::string>({ "otasigned_v5.zip", "v3" })));
+    ::testing::Values(
+      std::vector<std::string>({"otasigned_v1.zip", "v2"}),
+      std::vector<std::string>({"otasigned_v2.zip", "v1"}),
+      std::vector<std::string>({"otasigned_v3.zip", "v5"}),
+      std::vector<std::string>({"otasigned_v4.zip", "v5"}),
+      std::vector<std::string>({"otasigned_v5.zip", "v3"})));
 
 INSTANTIATE_TEST_CASE_P(WrongHash, VerifierFailureTest,
-                        ::testing::Values(std::vector<std::string>({ "otasigned_v1.zip", "v3" }),
-                                          std::vector<std::string>({ "otasigned_v2.zip", "v4" }),
-                                          std::vector<std::string>({ "otasigned_v3.zip", "v1" }),
-                                          std::vector<std::string>({ "otasigned_v4.zip", "v2" })));
+    ::testing::Values(
+      std::vector<std::string>({"otasigned_v1.zip", "v3"}),
+      std::vector<std::string>({"otasigned_v2.zip", "v4"}),
+      std::vector<std::string>({"otasigned_v3.zip", "v1"}),
+      std::vector<std::string>({"otasigned_v4.zip", "v2"})));
 
 INSTANTIATE_TEST_CASE_P(BadPackage, VerifierFailureTest,
-                        ::testing::Values(std::vector<std::string>({ "random.zip", "v1" }),
-                                          std::vector<std::string>({ "fake-eocd.zip", "v1" })));
+    ::testing::Values(
+      std::vector<std::string>({"random.zip", "v1"}),
+      std::vector<std::string>({"fake-eocd.zip", "v1"})));
