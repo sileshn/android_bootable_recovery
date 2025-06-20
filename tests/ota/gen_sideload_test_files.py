@@ -68,6 +68,7 @@ def GeneratePackages(args):
         metadata.type = ota_metadata_pb2.OtaMetadata.AB
         if image_prefix.endswith("_wipe"):
             metadata.wipe = True
+        metadata.spl_downgrade = True
         metadata.precondition.device.append(props["ro.build.product"])
         metadata.postcondition.security_patch_level = props["ro.build.version.security_patch"]
         metadata.postcondition.timestamp = int(props["ro.build.date.utc"])
