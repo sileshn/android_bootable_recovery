@@ -21,7 +21,11 @@ import com.android.tradefed.build.IBuildInfo
 import com.android.tradefed.device.DeviceNotAvailableException
 import com.android.tradefed.device.ITestDevice
 import com.android.tradefed.device.TestDeviceState
+import com.android.tradefed.result.ByteArrayInputStreamSource
+import com.android.tradefed.result.FileInputStreamSource
+import com.android.tradefed.result.LogDataType
 import com.android.tradefed.testtype.DeviceJUnit4ClassRunner
+import com.android.tradefed.testtype.DeviceJUnit4ClassRunner.TestLogData
 import com.android.tradefed.testtype.IBuildReceiver
 import com.android.tradefed.testtype.IDeviceTest
 import com.android.tradefed.testtype.IRemoteTest
@@ -30,12 +34,16 @@ import com.android.tradefed.util.CommandStatus
 
 import java.io.File
 
-import org.junit.runner.RunWith
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TestWatcher
+import org.junit.runner.Description
+import org.junit.runner.RunWith
 
 private val SIDELOAD_TIMEOUT: Long = 1000 * 60
 private val PARTITION_NAME = "sideload_test"
@@ -43,6 +51,9 @@ private val PARTITION_NAME = "sideload_test"
 @RunWith(DeviceJUnit4ClassRunner::class)
 class AbSideloadTest :  BaseHostJUnit4Test() {
     private val mInstallUtils = InstallUtilsHost(this)
+    private var mRecoveryLog: File? = null
+    private var mDmesg: String? = null
+    private var mFailed: Boolean = false
 
     @Before
     public fun setUp() {
@@ -50,6 +61,21 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         // OTA writes new data.
         wipeSideloadPartition()
     }
+
+    @get:Rule(order=0) val watcher = object : TestWatcher() {
+        override fun starting(description: Description) {
+            mFailed = false
+        }
+        override fun failed(e: Throwable, description: Description) {
+            mFailed = true
+        }
+        override fun finished(description: Description) {
+            if (mFailed) {
+                exportRecoveryLogs(description.methodName)
+            }
+        }
+    }
+    @get:Rule(order=1) val metrics = TestLogData()
 
     @After
     public fun tearDown() {
@@ -89,7 +115,47 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
             return device.executeAdbCommand("sideload", file.getPath())
         } finally {
             device.options.setAdbCommandTimeout(oldTimeout)
+            pullRecoveryLog()
         }
+    }
+
+
+    private fun exportRecoveryLogs(name: String) {
+        if (mRecoveryLog != null) {
+            metrics.addTestLog("$name-recovery.log", LogDataType.LOGCAT, FileInputStreamSource(mRecoveryLog!!))
+        }
+        if (mDmesg != null) {
+            metrics.addTestLog("$name-dmesg", LogDataType.TEXT, ByteArrayInputStreamSource(mDmesg!!.toByteArray()))
+        }
+    }
+
+    private fun pullRecoveryLog() {
+        try {
+            // Transition from adb sideload to recovery.
+            reconnectInRecovery()
+            // Get root.
+            enableAdbRootInRecovery()
+            // Pull interesting logs.
+            mRecoveryLog = device.pullFile("/tmp/recovery.log")
+            mDmesg = device.executeShellCommand("dmesg")
+        } finally {
+        }
+    }
+
+    private fun enableAdbRootInRecovery() {
+        // enableAdbRoot() can time out, so roll our own implementation here.
+        device.executeAdbCommand("root")
+        if (!device.waitForDeviceNotAvailable(device.options.adbRootUnavailableTimeout)) {
+            if (device.isAdbRoot()) {
+                return
+            }
+        }
+        reconnectInRecovery()
+    }
+
+    private fun reconnectInRecovery() {
+        device.connection.reconnect(device.serialNumber)
+        device.waitForDeviceInRecovery(SIDELOAD_TIMEOUT)
     }
 
     private fun deviceFileExists(path: String): Boolean {
