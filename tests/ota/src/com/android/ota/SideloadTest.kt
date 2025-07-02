@@ -68,7 +68,7 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
 
     @Before
     public fun setUp() {
-        finishUpdate()
+        finishOrCancelUpdate()
 
         // Just in case it already exists, zero it out, to make sure that the
         // OTA writes new data.
@@ -126,7 +126,7 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         device.rebootIntoSideload()
         runAdbSideload("sideload_test_1.zip")
         device.rebootUntilOnline()
-        verifySideloadedTestPartition("sideload_test_1.img", readSlotSuffix())
+        verifySideloadedTestPartition("sideload_test_1.img")
     }
 
     // Same as above, but reboot into the new slot and don't get to boot_complete.
@@ -140,7 +140,7 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         device.rebootIntoSideload()
         runAdbSideload("sideload_test_1.zip")
         device.rebootUntilOnline()
-        verifySideloadedTestPartition("sideload_test_1.img", readSlotSuffix())
+        verifySideloadedTestPartition("sideload_test_1.img")
     }
 
     // Apply an OTA, then reboot in the middle of a merge. Sideloading should
@@ -157,11 +157,27 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         device.rebootIntoSideload()
         runAdbSideload("sideload_test_1.zip")
         device.rebootUntilOnline()
-        verifySideloadedTestPartition("sideload_test_1.img", readSlotSuffix())
+        verifySideloadedTestPartition("sideload_test_1.img")
     }
 
-    private fun verifySideloadedTestPartition(imageFile: String, new_slot: String) {
-        val partition_path = "/dev/block/mapper/" + PARTITION_NAME + new_slot
+    // Apply an OTA, but don't switch slots. Sideload should still work.
+    @Test
+    public fun sideloadAfterOtaWithoutSlotSwitch() {
+        device.enableAdbRoot()
+
+        val oldSlot = readSlotSuffix()
+        runUpdateEngine("sideload_test_2.zip", slotSwitch = false)
+        device.rebootIntoRecovery()
+        assertEquals(oldSlot, readSlotSuffix())
+        device.rebootIntoSideload()
+        runAdbSideload("sideload_test_1.zip")
+        device.rebootUntilOnline()
+        verifySideloadedTestPartition("sideload_test_1.img")
+    }
+
+    private fun verifySideloadedTestPartition(imageFile: String, slot: String? = null) {
+        val slotSuffix = (if (slot != null) slot else readSlotSuffix())
+        val partition_path = "/dev/block/mapper/" + PARTITION_NAME + slotSuffix
         assertTrue(deviceFileExists(partition_path))
         val partition_file = device.pullFile(partition_path)
         val partition_bytes = partition_file.readBytes()
@@ -171,12 +187,16 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         assertTrue(partition_bytes contentEquals canonical_bytes)
     }
 
-    private fun runUpdateEngine(pkg: String) {
+    private fun runUpdateEngine(pkg: String, slotSwitch: Boolean = true) {
         // This is copied from update_device.py.
         val file = mInstallUtils.getTestFile(pkg)
         val runner = UpdateEngineRunner(device, file)
-        runner.run()
-        assertEquals("unverified", getUpdateState())
+        runner.run(slotSwitch = slotSwitch)
+        if (slotSwitch) {
+            assertEquals("unverified", getUpdateState())
+        } else {
+            assertEquals("initiated", getUpdateState())
+        }
     }
 
     private fun runAdbSideload(pkg: String): String {
@@ -256,7 +276,7 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         adbShell("dd bs=1 count=$size if=/dev/zero of=$rw_path")
     }
 
-    private fun finishUpdate() {
+    private fun finishOrCancelUpdate() {
         waitForCondition("finish update", 120.seconds, 1.seconds) {
             val state = getUpdateState()
             if (state == "none") {
@@ -270,6 +290,8 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
                 // We'll have to wait for the merge to start and then complete.
             } else if (state == "merging") {
                 RunUtil.getDefault().sleep(1000L)
+            } else if (state == "initiated") {
+                adbShell("snapshotctl cancel")
             } else {
                 throw Exception("Unexpected update state: $state")
             }
@@ -296,7 +318,7 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     private fun getUpdateState(): String {
         val regex = "Update state: ([^\\s]+)".toRegex()
 
-        val result = adbShell("snapshotctl dump")
+        val result = adbShell("su 0 snapshotctl dump")
         val match = regex.find(result)
         if (match == null) {
             return "none"
@@ -307,7 +329,7 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     private fun getOtaBootState(): String {
         val regex = "Boot indicator: booting from ([^\\s]+) slot".toRegex()
 
-        val result = adbShell("snapshotctl dump")
+        val result = adbShell("su 0 snapshotctl dump")
         val match = regex.find(result)
         if (match == null) {
             return "none"
