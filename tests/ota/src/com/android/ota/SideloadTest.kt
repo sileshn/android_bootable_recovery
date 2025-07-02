@@ -175,11 +175,30 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         verifySideloadedTestPartition("sideload_test_1.img")
     }
 
+    // Factory reset during a merge should force a merge in recovery. This is
+    // not really a sideload test but it involves much of the recovery
+    // machinery.
+    @Test
+    public fun mergeInRecoveryForDataWipe() {
+        device.enableAdbRoot()
+        device.setProperty(BLOCK_MERGE_SWITCHOVER_PROP, "1")
+        runUpdateEngine("sideload_test_2.zip")
+        device.rebootUntilOnline()
+        waitForCondition("merge started", WAIT_FOR_MERGE_TIMEOUT, 1.seconds) {
+            getUpdateState() == "merging"
+        }
+        performWipe()
+        assertEquals("none", getUpdateState())
+        verifySideloadedTestPartition("sideload_test_2.img")
+    }
+
     private fun verifySideloadedTestPartition(imageFile: String, slot: String? = null) {
+        device.enableAdbRoot()
         val slotSuffix = (if (slot != null) slot else readSlotSuffix())
         val partition_path = "/dev/block/mapper/" + PARTITION_NAME + slotSuffix
         assertTrue(deviceFileExists(partition_path))
         val partition_file = device.pullFile(partition_path)
+        assertNotEquals("pull $partition_path", null, partition_file)
         val partition_bytes = partition_file.readBytes()
         val canonical_file = getTestFile(imageFile)
         val canonical_bytes = canonical_file.readBytes()
@@ -208,6 +227,20 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         } finally {
             device.options.setAdbCommandTimeout(oldTimeout)
             pullRecoveryLog()
+        }
+    }
+
+    private fun performWipe() {
+        device.setProperty("debug.before_factory_reset", "1")
+        val cr = device.executeShellV2Command("am broadcast -a android.intent.action.MASTER_CLEAR -n android/com.android.server.MasterClearReceiver")
+        if (cr.status != CommandStatus.SUCCESS) {
+            // adb can disconnect quickly and we get a misnomer error code instead.
+            if (!(cr.status == CommandStatus.FAILED && cr.exitCode == 255)) {
+                throw Exception("Broadcast for factory reset failed")
+            }
+        }
+        waitForCondition("factory reset", 300.seconds, 1.seconds) {
+            !inRecovery() && getPropertyUncached("debug.before_factory_reset") != "1"
         }
     }
 
@@ -340,6 +373,16 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         return match.groupValues[1]
     }
 
+    // Bypass device.getProperty which does internal caching. We reboot a lot
+    // without ITestDevice internally understanding that, so make sure we
+    // always get live data.
+    private fun getPropertyUncached(key: String): String {
+        if (device.deviceState != TestDeviceState.ONLINE && device.deviceState != TestDeviceState.RECOVERY) {
+            device.waitForDeviceOnline()
+        }
+        return adbShell("getprop $key").trim()
+    }
+
     private fun adbShell(cmd: String): String {
         val cr = device.executeShellV2Command(cmd)
         assertEquals("adb shell $cmd", CommandStatus.SUCCESS, cr.status)
@@ -356,6 +399,10 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         val output = device.executeShellCommand("getprop ro.boot.slot_suffix").trim()
         assertTrue("Slot suffix is _a or _b", output == "_a" || output == "_b")
         return output
+    }
+
+    protected fun inRecovery(): Boolean {
+        return device.getProperty("ro.boot.mode") == "recovery"
     }
 
     private fun getOtherSlot(suffix: String): String {
