@@ -72,6 +72,7 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
 
         // Just in case it already exists, zero it out, to make sure that the
         // OTA writes new data.
+        assertTrue(device.enableAdbRoot())
         wipeSideloadPartition()
 
         // Clear any properties that might break tests.
@@ -132,7 +133,6 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     // Same as above, but reboot into the new slot and don't get to boot_complete.
     @Test
     public fun sideloadWithUnverifiedOtaPostReboot() {
-        device.enableAdbRoot()
         device.setProperty(DONT_COMMIT_CHECKPOINT_PROP, "1")
         runUpdateEngine("sideload_test_2.zip")
         device.rebootUntilOnline()
@@ -147,7 +147,6 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     // still work.
     @Test
     public fun sideloadDuringMerge() {
-        device.enableAdbRoot()
         device.setProperty(BLOCK_MERGE_SWITCHOVER_PROP, "1")
         runUpdateEngine("sideload_test_2.zip")
         device.rebootUntilOnline()
@@ -163,8 +162,6 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     // Apply an OTA, but don't switch slots. Sideload should still work.
     @Test
     public fun sideloadAfterOtaWithoutSlotSwitch() {
-        device.enableAdbRoot()
-
         val oldSlot = readSlotSuffix()
         runUpdateEngine("sideload_test_2.zip", slotSwitch = false)
         device.rebootIntoRecovery()
@@ -180,7 +177,6 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     // machinery.
     @Test
     public fun mergeInRecoveryForDataWipe() {
-        device.enableAdbRoot()
         device.setProperty(BLOCK_MERGE_SWITCHOVER_PROP, "1")
         runUpdateEngine("sideload_test_2.zip")
         device.rebootUntilOnline()
@@ -190,6 +186,16 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         performWipe()
         assertEquals("none", getUpdateState())
         verifySideloadedTestPartition("sideload_test_2.img")
+    }
+
+    // Test powerwashing via OTA. This is effectively a factory reset test,
+    // although the flow is slightly different since rollback is not allowed.
+    @Test
+    public fun mergeInRecoveryForPowerwash() {
+        runUpdateEngine("sideload_test_1.zip", powerWash = true)
+        device.rebootUntilOnline()
+        assertEquals("none", getUpdateState())
+        verifySideloadedTestPartition("sideload_test_1.img")
     }
 
     private fun verifySideloadedTestPartition(imageFile: String, slot: String? = null) {
@@ -206,11 +212,11 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         assertTrue(partition_bytes contentEquals canonical_bytes)
     }
 
-    private fun runUpdateEngine(pkg: String, slotSwitch: Boolean = true) {
+    private fun runUpdateEngine(pkg: String, slotSwitch: Boolean = true, powerWash: Boolean = false) {
         // This is copied from update_device.py.
         val file = mInstallUtils.getTestFile(pkg)
         val runner = UpdateEngineRunner(device, file)
-        runner.run(slotSwitch = slotSwitch)
+        runner.run(slotSwitch = slotSwitch, powerWash = powerWash)
         if (slotSwitch) {
             assertEquals("unverified", getUpdateState())
         } else {
@@ -293,7 +299,6 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     }
 
     private fun wipeSideloadPartition() {
-        assertTrue(device.enableAdbRoot())
         // See if we have a sideload_test partition.
         val partition_name = PARTITION_NAME + readSlotSuffix()
         if (!deviceFileExists("/dev/block/mapper/$partition_name")) {
@@ -324,7 +329,7 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
             } else if (state == "merging") {
                 RunUtil.getDefault().sleep(1000L)
             } else if (state == "initiated") {
-                adbShell("snapshotctl cancel")
+                adbShell("su 0 snapshotctl cancel")
             } else {
                 throw Exception("Unexpected update state: $state")
             }

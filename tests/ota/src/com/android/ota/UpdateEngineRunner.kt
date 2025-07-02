@@ -35,7 +35,7 @@ class UpdateEngineRunner(val device: ITestDevice, val file: File) {
         zip = ZipFile(file)
     }
 
-    public fun run(slotSwitch: Boolean) {
+    public fun run(slotSwitch: Boolean, powerWash: Boolean) {
         val otaPath = "/data/ota_package/payload.bin"
         val tempPath = "/data/local/tmp/payload.bin"
 
@@ -54,6 +54,9 @@ class UpdateEngineRunner(val device: ITestDevice, val file: File) {
 
         if (!slotSwitch) {
             headers += "SWITCH_SLOT_ON_REBOOT=0\n"
+        }
+        if (powerWash) {
+            headers += "POWERWASH=1\n"
         }
 
         val payloadSize = payload.length()
