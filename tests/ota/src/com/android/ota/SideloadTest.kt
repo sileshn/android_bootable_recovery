@@ -52,8 +52,12 @@ import org.junit.rules.TestWatcher
 import org.junit.runner.Description
 import org.junit.runner.RunWith
 
+
 private val SIDELOAD_TIMEOUT: Long = 1000 * 60
+private val WAIT_FOR_MERGE_TIMEOUT = 120.seconds
 private val PARTITION_NAME = "sideload_test"
+private val DONT_COMMIT_CHECKPOINT_PROP = "persist.vold.dont_commit_checkpoint"
+private val BLOCK_MERGE_SWITCHOVER_PROP = "persist.virtual_ab.testing.block_merge_switchover"
 
 @RunWith(DeviceJUnit4ClassRunner::class)
 class AbSideloadTest :  BaseHostJUnit4Test() {
@@ -69,6 +73,9 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         // Just in case it already exists, zero it out, to make sure that the
         // OTA writes new data.
         wipeSideloadPartition()
+
+        // Clear any properties that might break tests.
+        resetPersistProps()
     }
 
     @get:Rule(order=0) val watcher = object : TestWatcher() {
@@ -89,8 +96,11 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     @After
     public fun tearDown() {
         if (device.deviceState == TestDeviceState.SIDELOAD || device.deviceState == TestDeviceState.RECOVERY) {
-            device.reboot()
+            device.rebootUntilOnline()
         }
+
+        // Clear any properties that might break tests.
+        resetPersistProps()
     }
 
     // End to end sideload test.
@@ -113,6 +123,37 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     @Test
     public fun sideloadWithUnverifiedOtaNoReboot() {
         runUpdateEngine("sideload_test_2.zip")
+        device.rebootIntoSideload()
+        runAdbSideload("sideload_test_1.zip")
+        device.rebootUntilOnline()
+        verifySideloadedTestPartition("sideload_test_1.img", readSlotSuffix())
+    }
+
+    // Same as above, but reboot into the new slot and don't get to boot_complete.
+    @Test
+    public fun sideloadWithUnverifiedOtaPostReboot() {
+        device.enableAdbRoot()
+        device.setProperty(DONT_COMMIT_CHECKPOINT_PROP, "1")
+        runUpdateEngine("sideload_test_2.zip")
+        device.rebootUntilOnline()
+        assertEquals(getUpdateState(), "unverified")
+        device.rebootIntoSideload()
+        runAdbSideload("sideload_test_1.zip")
+        device.rebootUntilOnline()
+        verifySideloadedTestPartition("sideload_test_1.img", readSlotSuffix())
+    }
+
+    // Apply an OTA, then reboot in the middle of a merge. Sideloading should
+    // still work.
+    @Test
+    public fun sideloadDuringMerge() {
+        device.enableAdbRoot()
+        device.setProperty(BLOCK_MERGE_SWITCHOVER_PROP, "1")
+        runUpdateEngine("sideload_test_2.zip")
+        device.rebootUntilOnline()
+        waitForCondition("merge started", WAIT_FOR_MERGE_TIMEOUT, 1.seconds) {
+            getUpdateState() == "merging"
+        }
         device.rebootIntoSideload()
         runAdbSideload("sideload_test_1.zip")
         device.rebootUntilOnline()
@@ -148,6 +189,11 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
             device.options.setAdbCommandTimeout(oldTimeout)
             pullRecoveryLog()
         }
+    }
+
+    private fun resetPersistProps() {
+        device.setProperty(DONT_COMMIT_CHECKPOINT_PROP, "")
+        device.setProperty(BLOCK_MERGE_SWITCHOVER_PROP, "")
     }
 
     private fun exportRecoveryLogs(name: String) {
