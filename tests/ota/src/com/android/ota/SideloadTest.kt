@@ -17,6 +17,8 @@
 package com.android.ota
 
 import android.cts.install.lib.host.InstallUtilsHost
+
+import com.android.ddmlib.TimeoutException
 import com.android.tradefed.build.IBuildInfo
 import com.android.tradefed.device.DeviceNotAvailableException
 import com.android.tradefed.device.ITestDevice
@@ -31,8 +33,13 @@ import com.android.tradefed.testtype.IDeviceTest
 import com.android.tradefed.testtype.IRemoteTest
 import com.android.tradefed.testtype.junit4.BaseHostJUnit4Test
 import com.android.tradefed.util.CommandStatus
+import com.android.tradefed.util.RunUtil
 
 import java.io.File
+
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -57,6 +64,8 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
 
     @Before
     public fun setUp() {
+        finishUpdate()
+
         // Just in case it already exists, zero it out, to make sure that the
         // OTA writes new data.
         wipeSideloadPartition()
@@ -96,15 +105,37 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         assertEquals(new_slot, getOtherSlot(slot))
 
         assertTrue(device.enableAdbRoot())
+        verifySideloadedTestPartition("sideload_test_1.img", new_slot)
+    }
 
+    // Apply an OTA, but immediately reboot into recovery and overwrite it with
+    // a different OTA, and verify that the second OTA was written correctly.
+    @Test
+    public fun sideloadWithUnverifiedOtaNoReboot() {
+        runUpdateEngine("sideload_test_2.zip")
+        device.rebootIntoSideload()
+        runAdbSideload("sideload_test_1.zip")
+        device.rebootUntilOnline()
+        verifySideloadedTestPartition("sideload_test_1.img", readSlotSuffix())
+    }
+
+    private fun verifySideloadedTestPartition(imageFile: String, new_slot: String) {
         val partition_path = "/dev/block/mapper/" + PARTITION_NAME + new_slot
         assertTrue(deviceFileExists(partition_path))
         val partition_file = device.pullFile(partition_path)
         val partition_bytes = partition_file.readBytes()
-        val canonical_file = getTestFile("sideload_test_1.img")
+        val canonical_file = getTestFile(imageFile)
         val canonical_bytes = canonical_file.readBytes()
         assertEquals(partition_bytes.size, canonical_bytes.size)
         assertTrue(partition_bytes contentEquals canonical_bytes)
+    }
+
+    private fun runUpdateEngine(pkg: String) {
+        // This is copied from update_device.py.
+        val file = mInstallUtils.getTestFile(pkg)
+        val runner = UpdateEngineRunner(device, file)
+        runner.run()
+        assertEquals("unverified", getUpdateState())
     }
 
     private fun runAdbSideload(pkg: String): String {
@@ -118,7 +149,6 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
             pullRecoveryLog()
         }
     }
-
 
     private fun exportRecoveryLogs(name: String) {
         if (mRecoveryLog != null) {
@@ -174,12 +204,78 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         val rw_name = partition_name + "-rw"
         val rw_path = "/dev/block/mapper/$rw_name"
         if (!deviceFileExists(rw_path)) {
-            val cr = device.executeShellV2Command("dmctl create-from-super $partition_name $rw_name")
-            assertEquals(cr.status, CommandStatus.SUCCESS)
+            adbShell("dmctl create-from-super $partition_name $rw_name")
         }
         val size = device.executeShellCommand("blockdev --getsize64 $rw_path").trim()
-        val cr = device.executeShellV2Command("dd bs=1 count=$size if=/dev/zero of=$rw_path")
-        assertEquals(cr.status, CommandStatus.SUCCESS)
+        adbShell("dd bs=1 count=$size if=/dev/zero of=$rw_path")
+    }
+
+    private fun finishUpdate() {
+        waitForCondition("finish update", 120.seconds, 1.seconds) {
+            val state = getUpdateState()
+            if (state == "none") {
+                return@waitForCondition true
+            }
+            if (state == "unverified") {
+                if (getOtaBootState() == "source") {
+                    device.rebootUntilOnline()
+                    return@waitForCondition getUpdateState() == "none"
+                }
+                // We'll have to wait for the merge to start and then complete.
+            } else if (state == "merging") {
+                RunUtil.getDefault().sleep(1000L)
+            } else {
+                throw Exception("Unexpected update state: $state")
+            }
+            return@waitForCondition false
+        }
+    }
+
+    private fun waitForCondition(message: String, timeout: Duration, sleep: Duration, cond: () -> Boolean) {
+        val start = TimeSource.Monotonic.markNow()
+        val limit = start + timeout
+        while (true) {
+            if (cond()) {
+                return
+            }
+            if (TimeSource.Monotonic.markNow() >= limit) {
+                throw TimeoutException("timed out: $message")
+            }
+            if (sleep.isPositive()) {
+                RunUtil.getDefault().sleep(sleep.inWholeMilliseconds)
+            }
+        }
+    }
+
+    private fun getUpdateState(): String {
+        val regex = "Update state: ([^\\s]+)".toRegex()
+
+        val result = adbShell("snapshotctl dump")
+        val match = regex.find(result)
+        if (match == null) {
+            return "none"
+        }
+        return match.groupValues[1]
+    }
+
+    private fun getOtaBootState(): String {
+        val regex = "Boot indicator: booting from ([^\\s]+) slot".toRegex()
+
+        val result = adbShell("snapshotctl dump")
+        val match = regex.find(result)
+        if (match == null) {
+            return "none"
+        }
+        if (match.groupValues[1] == "unknown") {
+            return "none"
+        }
+        return match.groupValues[1]
+    }
+
+    private fun adbShell(cmd: String): String {
+        val cr = device.executeShellV2Command(cmd)
+        assertEquals("adb shell $cmd", CommandStatus.SUCCESS, cr.status)
+        return cr.stdout
     }
 
     private fun getTestFile(name: String): File {
