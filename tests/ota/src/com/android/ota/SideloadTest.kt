@@ -52,8 +52,12 @@ import org.junit.rules.TestWatcher
 import org.junit.runner.Description
 import org.junit.runner.RunWith
 
+
 private val SIDELOAD_TIMEOUT: Long = 1000 * 60
+private val WAIT_FOR_MERGE_TIMEOUT = 120.seconds
 private val PARTITION_NAME = "sideload_test"
+private val DONT_COMMIT_CHECKPOINT_PROP = "persist.vold.dont_commit_checkpoint"
+private val BLOCK_MERGE_SWITCHOVER_PROP = "persist.virtual_ab.testing.block_merge_switchover"
 
 @RunWith(DeviceJUnit4ClassRunner::class)
 class AbSideloadTest :  BaseHostJUnit4Test() {
@@ -64,11 +68,15 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
 
     @Before
     public fun setUp() {
-        finishUpdate()
+        finishOrCancelUpdate()
 
         // Just in case it already exists, zero it out, to make sure that the
         // OTA writes new data.
+        assertTrue(device.enableAdbRoot())
         wipeSideloadPartition()
+
+        // Clear any properties that might break tests.
+        resetPersistProps()
     }
 
     @get:Rule(order=0) val watcher = object : TestWatcher() {
@@ -89,8 +97,11 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     @After
     public fun tearDown() {
         if (device.deviceState == TestDeviceState.SIDELOAD || device.deviceState == TestDeviceState.RECOVERY) {
-            device.reboot()
+            device.rebootUntilOnline()
         }
+
+        // Clear any properties that might break tests.
+        resetPersistProps()
     }
 
     // End to end sideload test.
@@ -116,13 +127,84 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         device.rebootIntoSideload()
         runAdbSideload("sideload_test_1.zip")
         device.rebootUntilOnline()
-        verifySideloadedTestPartition("sideload_test_1.img", readSlotSuffix())
+        verifySideloadedTestPartition("sideload_test_1.img")
     }
 
-    private fun verifySideloadedTestPartition(imageFile: String, new_slot: String) {
-        val partition_path = "/dev/block/mapper/" + PARTITION_NAME + new_slot
+    // Same as above, but reboot into the new slot and don't get to boot_complete.
+    @Test
+    public fun sideloadWithUnverifiedOtaPostReboot() {
+        device.setProperty(DONT_COMMIT_CHECKPOINT_PROP, "1")
+        runUpdateEngine("sideload_test_2.zip")
+        device.rebootUntilOnline()
+        assertEquals(getUpdateState(), "unverified")
+        device.rebootIntoSideload()
+        runAdbSideload("sideload_test_1.zip")
+        device.rebootUntilOnline()
+        verifySideloadedTestPartition("sideload_test_1.img")
+    }
+
+    // Apply an OTA, then reboot in the middle of a merge. Sideloading should
+    // still work.
+    @Test
+    public fun sideloadDuringMerge() {
+        device.setProperty(BLOCK_MERGE_SWITCHOVER_PROP, "1")
+        runUpdateEngine("sideload_test_2.zip")
+        device.rebootUntilOnline()
+        waitForCondition("merge started", WAIT_FOR_MERGE_TIMEOUT, 1.seconds) {
+            getUpdateState() == "merging"
+        }
+        device.rebootIntoSideload()
+        runAdbSideload("sideload_test_1.zip")
+        device.rebootUntilOnline()
+        verifySideloadedTestPartition("sideload_test_1.img")
+    }
+
+    // Apply an OTA, but don't switch slots. Sideload should still work.
+    @Test
+    public fun sideloadAfterOtaWithoutSlotSwitch() {
+        val oldSlot = readSlotSuffix()
+        runUpdateEngine("sideload_test_2.zip", slotSwitch = false)
+        device.rebootIntoRecovery()
+        assertEquals(oldSlot, readSlotSuffix())
+        device.rebootIntoSideload()
+        runAdbSideload("sideload_test_1.zip")
+        device.rebootUntilOnline()
+        verifySideloadedTestPartition("sideload_test_1.img")
+    }
+
+    // Factory reset during a merge should force a merge in recovery. This is
+    // not really a sideload test but it involves much of the recovery
+    // machinery.
+    @Test
+    public fun mergeInRecoveryForDataWipe() {
+        device.setProperty(BLOCK_MERGE_SWITCHOVER_PROP, "1")
+        runUpdateEngine("sideload_test_2.zip")
+        device.rebootUntilOnline()
+        waitForCondition("merge started", WAIT_FOR_MERGE_TIMEOUT, 1.seconds) {
+            getUpdateState() == "merging"
+        }
+        performWipe()
+        assertEquals("none", getUpdateState())
+        verifySideloadedTestPartition("sideload_test_2.img")
+    }
+
+    // Test powerwashing via OTA. This is effectively a factory reset test,
+    // although the flow is slightly different since rollback is not allowed.
+    @Test
+    public fun mergeInRecoveryForPowerwash() {
+        runUpdateEngine("sideload_test_1.zip", powerWash = true)
+        device.rebootUntilOnline()
+        assertEquals("none", getUpdateState())
+        verifySideloadedTestPartition("sideload_test_1.img")
+    }
+
+    private fun verifySideloadedTestPartition(imageFile: String, slot: String? = null) {
+        device.enableAdbRoot()
+        val slotSuffix = (if (slot != null) slot else readSlotSuffix())
+        val partition_path = "/dev/block/mapper/" + PARTITION_NAME + slotSuffix
         assertTrue(deviceFileExists(partition_path))
         val partition_file = device.pullFile(partition_path)
+        assertNotEquals("pull $partition_path", null, partition_file)
         val partition_bytes = partition_file.readBytes()
         val canonical_file = getTestFile(imageFile)
         val canonical_bytes = canonical_file.readBytes()
@@ -130,12 +212,16 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         assertTrue(partition_bytes contentEquals canonical_bytes)
     }
 
-    private fun runUpdateEngine(pkg: String) {
+    private fun runUpdateEngine(pkg: String, slotSwitch: Boolean = true, powerWash: Boolean = false) {
         // This is copied from update_device.py.
         val file = mInstallUtils.getTestFile(pkg)
         val runner = UpdateEngineRunner(device, file)
-        runner.run()
-        assertEquals("unverified", getUpdateState())
+        runner.run(slotSwitch = slotSwitch, powerWash = powerWash)
+        if (slotSwitch) {
+            assertEquals("unverified", getUpdateState())
+        } else {
+            assertEquals("initiated", getUpdateState())
+        }
     }
 
     private fun runAdbSideload(pkg: String): String {
@@ -148,6 +234,25 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
             device.options.setAdbCommandTimeout(oldTimeout)
             pullRecoveryLog()
         }
+    }
+
+    private fun performWipe() {
+        device.setProperty("debug.before_factory_reset", "1")
+        val cr = device.executeShellV2Command("am broadcast -a android.intent.action.MASTER_CLEAR -n android/com.android.server.MasterClearReceiver")
+        if (cr.status != CommandStatus.SUCCESS) {
+            // adb can disconnect quickly and we get a misnomer error code instead.
+            if (!(cr.status == CommandStatus.FAILED && cr.exitCode == 255)) {
+                throw Exception("Broadcast for factory reset failed")
+            }
+        }
+        waitForCondition("factory reset", 300.seconds, 1.seconds) {
+            !inRecovery() && getPropertyUncached("debug.before_factory_reset") != "1"
+        }
+    }
+
+    private fun resetPersistProps() {
+        device.setProperty(DONT_COMMIT_CHECKPOINT_PROP, "")
+        device.setProperty(BLOCK_MERGE_SWITCHOVER_PROP, "")
     }
 
     private fun exportRecoveryLogs(name: String) {
@@ -194,7 +299,6 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     }
 
     private fun wipeSideloadPartition() {
-        assertTrue(device.enableAdbRoot())
         // See if we have a sideload_test partition.
         val partition_name = PARTITION_NAME + readSlotSuffix()
         if (!deviceFileExists("/dev/block/mapper/$partition_name")) {
@@ -210,7 +314,7 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         adbShell("dd bs=1 count=$size if=/dev/zero of=$rw_path")
     }
 
-    private fun finishUpdate() {
+    private fun finishOrCancelUpdate() {
         waitForCondition("finish update", 120.seconds, 1.seconds) {
             val state = getUpdateState()
             if (state == "none") {
@@ -224,6 +328,8 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
                 // We'll have to wait for the merge to start and then complete.
             } else if (state == "merging") {
                 RunUtil.getDefault().sleep(1000L)
+            } else if (state == "initiated") {
+                adbShell("su 0 snapshotctl cancel")
             } else {
                 throw Exception("Unexpected update state: $state")
             }
@@ -250,7 +356,7 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     private fun getUpdateState(): String {
         val regex = "Update state: ([^\\s]+)".toRegex()
 
-        val result = adbShell("snapshotctl dump")
+        val result = adbShell("su 0 snapshotctl dump")
         val match = regex.find(result)
         if (match == null) {
             return "none"
@@ -261,7 +367,7 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     private fun getOtaBootState(): String {
         val regex = "Boot indicator: booting from ([^\\s]+) slot".toRegex()
 
-        val result = adbShell("snapshotctl dump")
+        val result = adbShell("su 0 snapshotctl dump")
         val match = regex.find(result)
         if (match == null) {
             return "none"
@@ -270,6 +376,16 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
             return "none"
         }
         return match.groupValues[1]
+    }
+
+    // Bypass device.getProperty which does internal caching. We reboot a lot
+    // without ITestDevice internally understanding that, so make sure we
+    // always get live data.
+    private fun getPropertyUncached(key: String): String {
+        if (device.deviceState != TestDeviceState.ONLINE && device.deviceState != TestDeviceState.RECOVERY) {
+            device.waitForDeviceOnline()
+        }
+        return adbShell("getprop $key").trim()
     }
 
     private fun adbShell(cmd: String): String {
@@ -288,6 +404,10 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         val output = device.executeShellCommand("getprop ro.boot.slot_suffix").trim()
         assertTrue("Slot suffix is _a or _b", output == "_a" || output == "_b")
         return output
+    }
+
+    protected fun inRecovery(): Boolean {
+        return device.getProperty("ro.boot.mode") == "recovery"
     }
 
     private fun getOtherSlot(suffix: String): String {

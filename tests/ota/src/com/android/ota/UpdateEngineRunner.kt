@@ -35,7 +35,7 @@ class UpdateEngineRunner(val device: ITestDevice, val file: File) {
         zip = ZipFile(file)
     }
 
-    public fun run() {
+    public fun run(slotSwitch: Boolean, powerWash: Boolean) {
         val otaPath = "/data/ota_package/payload.bin"
         val tempPath = "/data/local/tmp/payload.bin"
 
@@ -51,6 +51,13 @@ class UpdateEngineRunner(val device: ITestDevice, val file: File) {
         var headers = properties.readBytes().toString(Charsets.UTF_8)
         headers += "USER_AGENT=Dalvik (something, something)\n"
         headers += "NETWORK_ID=0\n"
+
+        if (!slotSwitch) {
+            headers += "SWITCH_SLOT_ON_REBOOT=0\n"
+        }
+        if (powerWash) {
+            headers += "POWERWASH=1\n"
+        }
 
         val payloadSize = payload.length()
         val args = arrayOf("shell", "su", "0", "update_engine_client", "--update", "--follow",
