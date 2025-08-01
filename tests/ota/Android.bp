@@ -57,7 +57,10 @@ genrule {
         "data/dynamic_partitions_info.txt",
     ],
     device_common_srcs: [
-        ":system-build.prop",
+        // Read product/etc/build.prop instead of system/build.prop.
+        // system/build.prop has generic system properties but no product-
+        // specific values.
+        ":product-build.prop",
     ],
     srcs: [
         ":sideload_test_prebuilts",
@@ -69,7 +72,7 @@ genrule {
         "--ota_from_raw_img_path $(location ota_from_raw_img) " +
         "--delta_generator_path $(location delta_generator) " +
         "--package_key $(location :system_dev_certificate{pk8}) " +
-        "--build_prop_file $(location :system-build.prop) ",
+        "--build_prop_file $(location :product-build.prop) ",
     out: [
         "sideload_test_1.zip",
         "sideload_test_2.zip",
