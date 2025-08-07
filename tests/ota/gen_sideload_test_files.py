@@ -44,6 +44,20 @@ def ParseBuildProps(fp):
     return props
 
 
+def GetDeviceName(props):
+    device_name_props = [
+        "ro.build.product",
+        "ro.product.device",
+        "ro.product.product.device",
+        "ro.product.vendor.device",
+        "ro.product.system.device",
+    ]
+    for device_name_prop in device_name_props:
+        if device_name_prop in props:
+            return props[device_name_prop]
+    raise Exception("Could not find device name props in build.prop file")
+
+
 def GeneratePackages(args):
     package_key = args.package_key
     if package_key.endswith(".pk8"):
@@ -51,8 +65,6 @@ def GeneratePackages(args):
 
     with open(args.build_prop_file, 'r') as fp:
         props = ParseBuildProps(fp)
-    if "ro.build.product" not in props:
-        raise Exception("Could not find ro.build.product in build.prop file")
 
     for data_file in args.data:
         # device_common_srcs leaks into this list.
@@ -69,7 +81,7 @@ def GeneratePackages(args):
         if image_prefix.endswith("_wipe"):
             metadata.wipe = True
         metadata.spl_downgrade = True
-        metadata.precondition.device.append(props["ro.build.product"])
+        metadata.precondition.device.append(GetDeviceName(props))
         metadata.postcondition.security_patch_level = props["ro.build.version.security_patch"]
         metadata.postcondition.timestamp = int(props["ro.build.date.utc"])
 
