@@ -21,6 +21,7 @@ import android.cts.install.lib.host.InstallUtilsHost
 import com.android.ddmlib.TimeoutException
 import com.android.tradefed.build.IBuildInfo
 import com.android.tradefed.device.DeviceNotAvailableException
+import com.android.tradefed.device.NativeDevice
 import com.android.tradefed.device.ITestDevice
 import com.android.tradefed.device.TestDeviceState
 import com.android.tradefed.result.ByteArrayInputStreamSource
@@ -382,10 +383,15 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
     // without ITestDevice internally understanding that, so make sure we
     // always get live data.
     private fun getPropertyUncached(key: String): String {
-        if (device.deviceState != TestDeviceState.ONLINE && device.deviceState != TestDeviceState.RECOVERY) {
-            device.waitForDeviceOnline()
+        val nativeDevice = device as NativeDevice?
+        if (nativeDevice != null) {
+            nativeDevice.invalidatePropertyCache()
         }
-        return adbShell("getprop $key").trim()
+        val prop = device.getProperty(key);
+        if (prop == null) {
+            return ""
+        }
+        return prop
     }
 
     private fun adbShell(cmd: String): String {
