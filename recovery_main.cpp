@@ -213,6 +213,7 @@ static void ListenRecoverySocket(RecoveryUI* ui, std::atomic<Device::BuiltinActi
     char msg;
     constexpr char kSwitchToFastboot = 'f';
     constexpr char kSwitchToRecovery = 'r';
+    constexpr char kSwitchToSideload = 's';
     ssize_t ret = TEMP_FAILURE_RETRY(read(connection_fd, &msg, sizeof(msg)));
     if (ret != sizeof(msg)) {
       PLOG(ERROR) << "Couldn't read from socket";
@@ -224,6 +225,9 @@ static void ListenRecoverySocket(RecoveryUI* ui, std::atomic<Device::BuiltinActi
         break;
       case kSwitchToFastboot:
         action = Device::BuiltinAction::ENTER_FASTBOOT;
+        break;
+      case kSwitchToSideload:
+        action = Device::BuiltinAction::APPLY_ADB_SIDELOAD;
         break;
       default:
         LOG(ERROR) << "Unrecognized char from socket " << msg;
@@ -469,6 +473,7 @@ int main(int argc, char** argv) {
   std::thread listener_thread(ListenRecoverySocket, ui, std::ref(action));
   listener_thread.detach();
 
+  Device::BuiltinAction next_recovery_action = Device::NO_ACTION;
   while (true) {
     // We start adbd in recovery for the device with userdebug build or a unlocked bootloader.
     std::string usb_config =
@@ -488,7 +493,21 @@ int main(int argc, char** argv) {
       }
     }
 
-    auto ret = fastboot ? StartFastboot(device, args) : start_recovery(device, args);
+    Device::BuiltinAction ret;
+    if (fastboot) {
+      ret = StartFastboot(device, args);
+    } else {
+      // If we received a sideload command via the recovery socket, then
+      // force recovery into sideload mode.
+      if (next_recovery_action == Device::APPLY_ADB_SIDELOAD) {
+        ret = start_recovery(device, { args[0], "--sideload" });
+      } else {
+        ret = start_recovery(device, args);
+      }
+    }
+
+    // Reset the next recovery action.
+    next_recovery_action = Device::NO_ACTION;
 
     if (ret == Device::KEY_INTERRUPTED) {
       ret = action.exchange(ret);
@@ -562,6 +581,10 @@ int main(int argc, char** argv) {
       case Device::REBOOT_FROM_FASTBOOT:
         ui->Print("Rebooting...\n");
         Reboot("userrequested,fastboot");
+        break;
+
+      case Device::APPLY_ADB_SIDELOAD:
+        next_recovery_action = ret;
         break;
 
       default:
