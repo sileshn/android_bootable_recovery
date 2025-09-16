@@ -342,8 +342,11 @@ class AbSideloadTest :  BaseHostJUnit4Test() {
         val start = TimeSource.Monotonic.markNow()
         val limit = start + timeout
         while (true) {
-            if (cond()) {
-                return
+            try {
+                if (cond()) {
+                    return
+                }
+            } catch (e: DeviceNotAvailableException) {
             }
             if (TimeSource.Monotonic.markNow() >= limit) {
                 throw TimeoutException("timed out: $message")
