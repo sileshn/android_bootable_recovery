@@ -231,9 +231,11 @@ int format_volume(const std::string& volume, const std::string& directory,
   }
 
   bool needs_casefold = false;
+  bool needs_projid = false;
 
   if (volume == "/data") {
     needs_casefold = android::base::GetBoolProperty("external_storage.casefold.enabled", false);
+    needs_projid = android::base::GetBoolProperty("external_storage.projid.enabled", false);
   }
 
   int64_t length = 0;
@@ -282,8 +284,10 @@ int format_volume(const std::string& volume, const std::string& directory,
 
     // Following is added for Project ID's quota as they require wider inodes.
     // The Quotas themselves are enabled by tune2fs on boot.
-    mke2fs_args.push_back("-I");
-    mke2fs_args.push_back("512");
+    if (needs_projid) {
+      mke2fs_args.push_back("-I");
+      mke2fs_args.push_back("512");
+    }
 
     if (v->fs_mgr_flags.ext_meta_csum) {
       mke2fs_args.push_back("-O");
