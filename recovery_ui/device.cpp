@@ -72,6 +72,13 @@ Device::Device(RecoveryUI* ui) : ui_(ui) {
   PopulateMenuItems();
 }
 
+// Define destructor out-of-line so that RecoveryUI is defined for unique_ptr.
+Device::~Device() = default;
+
+void Device::ResetUI(RecoveryUI* ui) {
+  ui_.reset(ui);
+}
+
 void Device::GoHome() {
   current_menu_ = &g_main_actions;
   PopulateMenuItems();
