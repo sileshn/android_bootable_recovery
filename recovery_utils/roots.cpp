@@ -353,6 +353,10 @@ int format_volume(const std::string& volume, const std::string& directory,
     make_f2fs_cmd.push_back("-O");
     make_f2fs_cmd.push_back("extra_attr");
   }
+  if (android::base::GetBoolProperty("external_storage.packedssa.enabled", false)) {
+    make_f2fs_cmd.push_back("-O");
+    make_f2fs_cmd.push_back("packed_ssa");
+  }
   make_f2fs_cmd.push_back("-b");
   make_f2fs_cmd.push_back(std::to_string(getpagesize()));
   make_f2fs_cmd.push_back(v->blk_device);
